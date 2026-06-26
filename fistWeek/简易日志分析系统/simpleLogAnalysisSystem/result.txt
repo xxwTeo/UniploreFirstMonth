@@ -1,3 +1,0 @@
-ERROR:7
-INFO:7
-WARN:7
