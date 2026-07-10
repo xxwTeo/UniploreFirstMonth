@@ -8,22 +8,44 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/auth")
 public class AuthController {
+
     private final UserService userService;
     private final JwtUtil jwtUtil;
+
+    /**
+     * 用户注册
+     * 接收前端传来的用户名和密码
+     * @param registerDTO
+     * @return 注册成功响应
+     */
     @PostMapping("/register")
     public Result<?> register(@Valid @RequestBody RegisterDTO registerDTO) {
         userService.register(registerDTO);
         return Result.succeed();
     }
+
+    /**
+     * 用户登录接口
+     * 接收前端传来的用户名和密码，验证成功后返回 JWT token
+     * @param registerDTO 登录请求体，包含用户名和密码
+     * @return 登录成功返回 token，失败抛出异常
+     */
     @PostMapping("/login")
     public Result<?> login(@Valid @RequestBody RegisterDTO registerDTO) {
         String token = userService.login(registerDTO);
         return Result.succeed(token);
     }
+
+    /**
+     * 获取当前登录用户的基本信息
+     * @param request HTTP 请求（用于解析当前登录用户）
+     * @return 当前用户详细信息
+     */
     @GetMapping("/profile")
     public Result<?> profile(HttpServletRequest request) {
         String token = request.getHeader("Authorization").replace("Bearer", "");

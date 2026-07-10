@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 public class SharedFileVO {
     private Long fileId;
     private String fileName;
-    private PermissionEnum permissionEnum;
+    private PermissionEnum permissionEnum;  //当前用户对于文件的权限，0=无权限, 1=只读, 2=可编辑, 3=所有权限
     private String ownerName;
     private LocalDateTime sharedAt;
 }
