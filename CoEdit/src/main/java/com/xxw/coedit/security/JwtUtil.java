@@ -1,9 +1,11 @@
 package com.xxw.coedit.security;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
+import com.xxw.coedit.common.enums.ErrorCode;
+import com.xxw.coedit.common.exceptions.BizException;
+import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
@@ -13,11 +15,23 @@ import java.util.Date;
 public class JwtUtil {
 
     //密钥字符串（用于 HS256 签名）
-    private static final String SECRET = "FileCollabSecretKey2026FileCollabSecretKey2026";
-    //将密钥字符串转换为 JJWT 要求的 SecretKey 对象
-    private static final SecretKey KEY = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+    @Value("${jwt.secret}")
+    private String secret;
+
     //Token 有效期限：7 天
-    private static final Long EXPIRATION = 7 * 24 * 3600 * 1000L;
+    @Value("${jwt.expiration}")
+    private Long expiration;
+
+    //将密钥字符串转换为 JJWT 要求的 SecretKey 对象
+    private SecretKey key;
+
+    /**
+     * 初始化密钥（PostConstruct 保证只执行一次）
+     */
+    @PostConstruct
+    public void init() {
+        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+    }
 
     /**
      * 生成 JWT Token
@@ -30,8 +44,8 @@ public class JwtUtil {
                 .setSubject(userId.toString())
                 .claim("username", username)
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION))
-                .signWith(KEY, SignatureAlgorithm.HS256)
+                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
 
@@ -41,19 +55,31 @@ public class JwtUtil {
      * @return Claims 对象，包含 Token 中存储的所有数据（subject、username、过期时间等）
      */
     public Claims parseToken(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(KEY)
+        try {
+            return Jwts.parserBuilder()
+                .setSigningKey(key)
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
+        } catch (ExpiredJwtException e) {
+            throw new BizException(ErrorCode.TOKEN_EXPIRED);
+        } catch (JwtException e) {
+            throw new BizException(ErrorCode.TOKEN_INVALID);
+        }
+
     }
 
     /**
-     * 从 Token 中提取用户 ID
-     * @param token 前端传来的 JWT 字符串
-     * @return 用户 ID（Long 类型）
+     * 从 Token 中获取用户 ID
      */
     public Long getUserId(String token) {
         return Long.parseLong(parseToken(token).getSubject());
+    }
+
+    /**
+     * 从 Token 中获取用户名
+     */
+    public String getUsername(String token) {
+        return parseToken(token).get("username", String.class);
     }
 }

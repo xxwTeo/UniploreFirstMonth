@@ -2,6 +2,7 @@ package com.xxw.coedit.common.handler;
 import com.xxw.coedit.common.exceptions.BizException;
 import com.xxw.coedit.common.result.Result;
 import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -19,6 +20,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ExpiredJwtException.class)
     public Result<?> handleTokenExpired(ExpiredJwtException e) {
         return Result.fail(401, "Token 已过期，请重新登录");
+    }
+
+    /**
+     * 统一处理 JWT 相关异常
+     * @param e JWT 异常对象（由 JJWT 在解析 Token 时抛出）
+     * @return 统一返回结果，包含 401 状态码及错误信息
+     */
+    @ExceptionHandler(JwtException.class)
+    public Result<?> handleJWTException(JwtException e) {
+        return Result.fail(401, "Token 非法");
     }
 
     /**

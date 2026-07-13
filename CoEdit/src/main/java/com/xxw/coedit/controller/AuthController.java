@@ -1,7 +1,9 @@
 package com.xxw.coedit.controller;
+import com.xxw.coedit.dto.request.LoginDTO;
 import com.xxw.coedit.security.JwtUtil;
 import com.xxw.coedit.dto.request.RegisterDTO;
 import com.xxw.coedit.entity.User;
+import com.xxw.coedit.security.WebUtils;
 import com.xxw.coedit.service.UserService;
 import com.xxw.coedit.common.result.Result;
 import jakarta.servlet.http.HttpServletRequest;
@@ -15,7 +17,7 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final UserService userService;
-    private final JwtUtil jwtUtil;
+    private final WebUtils webUtils;
 
     /**
      * 用户注册
@@ -32,12 +34,12 @@ public class AuthController {
     /**
      * 用户登录接口
      * 接收前端传来的用户名和密码，验证成功后返回 JWT token
-     * @param registerDTO 登录请求体，包含用户名和密码
+     * @param loginDTO 登录请求体，包含用户名和密码
      * @return 登录成功返回 token，失败抛出异常
      */
     @PostMapping("/login")
-    public Result<?> login(@Valid @RequestBody RegisterDTO registerDTO) {
-        String token = userService.login(registerDTO);
+    public Result<?> login(@Valid @RequestBody LoginDTO loginDTO) {
+        String token = userService.login(loginDTO);
         return Result.succeed(token);
     }
 
@@ -48,8 +50,7 @@ public class AuthController {
      */
     @GetMapping("/profile")
     public Result<?> profile(HttpServletRequest request) {
-        String token = request.getHeader("Authorization").replace("Bearer", "");
-        Long userId = jwtUtil.getUserId(token.trim());
+        Long userId = webUtils.currentUserId(request);
         User user = userService.profile(userId);
         return Result.succeed(user);
     }

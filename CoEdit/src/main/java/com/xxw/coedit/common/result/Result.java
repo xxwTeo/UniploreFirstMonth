@@ -23,7 +23,7 @@ public class Result<T> {
 
     public static <T> Result<T> fail(int code,String msg) {
         Result<T> result = new Result<>();
-        result.code = 0;
+        result.code = code;
         result.message = msg;
         return result;
     }

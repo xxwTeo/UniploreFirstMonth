@@ -1,0 +1,3 @@
+jwt:
+  secret: FileCollabSecretKey2026FileCollabSecretKey2026
+  expiration: 604800000

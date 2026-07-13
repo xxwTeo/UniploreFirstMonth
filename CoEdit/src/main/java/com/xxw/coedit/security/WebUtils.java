@@ -1,5 +1,5 @@
 package com.xxw.coedit.security;
-
+import com.xxw.coedit.common.enums.ErrorCode;
 import com.xxw.coedit.common.exceptions.BizException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
@@ -13,16 +13,15 @@ public class WebUtils {
     }
 
     /**
-     * 从当前 HTTP 请求中获取登录用户 ID
-     * @param request HTTP 请求对象
-     * @return 当前登录用户的 ID
-     * @throws BizException 当未登录或 Token 非法时抛出（code = 401）
+     * 从请求中获取当前登录用户 ID
      */
     public Long currentUserId(HttpServletRequest request) {
-        String auth = request.getHeader("Authorization");
-        if (auth == null || !auth.startsWith("Bearer ")) {
-            throw new BizException(401, "未登录");
+        String header = request.getHeader("Authorization");
+        if (header == null || !header.startsWith("Bearer ")) {
+            throw new BizException(ErrorCode.AUTH_TOKEN_INVALID);
         }
-        return jwtUtil.getUserId(auth.substring(7));
+
+        String token = header.substring(7);
+        return jwtUtil.getUserId(token);
     }
 }

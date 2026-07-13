@@ -27,7 +27,7 @@ public class FileController {
      */
     @PostMapping
     public Result<?> create(@RequestParam String name,
-                            @RequestParam(defaultValue = " ") String content,
+                            @RequestParam(defaultValue = "") String content,
                             HttpServletRequest request) {
         File file = fileService.createFile(name, content, webUtils.currentUserId(request));
         return Result.succeed(file);

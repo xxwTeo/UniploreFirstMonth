@@ -1,15 +1,22 @@
 package com.xxw.coedit.common.exceptions;
 
 
+import com.xxw.coedit.common.enums.ErrorCode;
+
 public class BizException extends RuntimeException {
 
-    private final int code;
+    private final ErrorCode errorCode;
 
-    public BizException(int code, String msg) {
-        super(msg); this.code = code;
+    public BizException(ErrorCode errorCode) {
+        super(errorCode.getMessage());
+        this.errorCode = errorCode;
     }
 
     public int getCode() {
-        return code;
+        return errorCode.getCode();
+    }
+
+    public String getMessage() {
+        return errorCode.getMessage();
     }
 }

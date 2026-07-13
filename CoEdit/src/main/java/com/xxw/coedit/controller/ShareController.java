@@ -1,6 +1,7 @@
 package com.xxw.coedit.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.xxw.coedit.dto.request.ShareCreateDTO;
 import com.xxw.coedit.security.WebUtils;
 import com.xxw.coedit.common.enums.PermissionEnum;
 import com.xxw.coedit.service.impl.ShareServiceImpl;
@@ -21,17 +22,15 @@ public class ShareController {
     /**
      * 分享文件接口
      * @param fileId        文件ID
-     * @param targetUserId  被分享的目标用户ID
-     * @param perm          当前用户对文件的权限
+     * @param shareCreateDTO       当前用户对文件的权限与目标文件
      * @param request       HTTP请求，用于获取当前登录用户信息
      * @return 分享结果
      */
-    @PostMapping
-    public Result<?> share(@RequestParam Long fileId,
-                            @RequestParam Long targetUserId,
-                            @RequestParam PermissionEnum perm,
+    @PostMapping("/{fileId}/share")
+    public Result<?> share(@PathVariable Long fileId,
+                            @RequestBody ShareCreateDTO shareCreateDTO,
                             HttpServletRequest request) {
-        shareService.shareFile(fileId, targetUserId, perm, webUtils.currentUserId(request));
+        shareService.shareFile(fileId,shareCreateDTO, webUtils.currentUserId(request));
         return Result.succeed("分享成功");
     }
 
@@ -62,7 +61,7 @@ public class ShareController {
             @RequestParam(defaultValue = "5") Long size,
             HttpServletRequest request) {
         Page<SharedFileVO> voPage = new Page<>(current, size);
-        Page<SharedFileVO> result = shareService.receviedPage(voPage, webUtils.currentUserId(request));
+        Page<SharedFileVO> result = shareService.receivedPage(voPage, webUtils.currentUserId(request));
         return Result.succeed(result);
     }
 }

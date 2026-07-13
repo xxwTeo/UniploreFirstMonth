@@ -1,8 +1,9 @@
 package com.xxw.coedit.service.impl;
-
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.xxw.coedit.common.enums.ErrorCode;
+import com.xxw.coedit.dto.request.ShareCreateDTO;
 import com.xxw.coedit.entity.File;
 import com.xxw.coedit.entity.FileShare;
 import com.xxw.coedit.entity.User;
@@ -15,7 +16,6 @@ import com.xxw.coedit.service.ShareService;
 import com.xxw.coedit.dto.response.SharedFileVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
@@ -30,7 +30,7 @@ public class ShareServiceImpl extends ServiceImpl<FileShareMapper, FileShare> im
 
     /**
      * 校验用户对指定文件的权限等级
-     * 文件权限, 0=无权限, 1=只读, 2=可编辑, 4=所有权限
+     * 文件权限, 0=无权限, 1=只读, 2=可编辑, 3=所有权限
      * @param fileId 文件ID
      * @param userId 用户ID
      * @return 所有者权限
@@ -63,36 +63,35 @@ public class ShareServiceImpl extends ServiceImpl<FileShareMapper, FileShare> im
     /**
      * 分享文件给其他用户
      * @param fileId        文件ID
-     * @param targetUserId  被分享的目标用户ID
-     * @param perm          当前用户对文件的权限
+     * @param shareCreateDTO  被分享的目标用户ID与当前用户对文件的权限
      * @param userId        当前操作用户ID
      * @throws BizException 当文件不存在、无权限、或分享给自己时抛出业务异常
      */
     @Override
-    public void shareFile(Long fileId, Long targetUserId, PermissionEnum perm, Long userId) {
+    public void shareFile(Long fileId, ShareCreateDTO shareCreateDTO, Long userId) {
         File file = fileMapper.selectById(fileId);
         // 文件不存在或非拥有者禁止分享
         if (file == null || !file.getOwnerId().equals(userId)) {
-            throw new BizException(4001, "文件不存在或无权限");
+            throw new BizException(ErrorCode.SHARE_FILE_NOT_FOUND);
         }
         // 防止自己分享给自己
-        if (targetUserId.equals(file.getOwnerId())) {
-            throw new BizException(4002, "不能分享文件给自己");
+        if (shareCreateDTO.getTargetUserId().equals(file.getOwnerId())) {
+            throw new BizException(ErrorCode.SHARE_TO_SELF);
         }
         // 已存在分享关系则更新权限，避免重复数据
         FileShare exist = getOne(new LambdaQueryWrapper<FileShare>()
                 .eq(FileShare::getFileId, fileId)
-                .eq(FileShare::getUserId, targetUserId));
+                .eq(FileShare::getUserId, shareCreateDTO.getTargetUserId()));
         if (exist != null) {
-            exist.setPermission(perm);
+            exist.setPermission(shareCreateDTO.getPermission());
             updateById(exist);
             return;
         }
         // 新建分享关系
         FileShare share = FileShare.builder()
                 .fileId(fileId)
-                .userId(targetUserId)
-                .permission(perm)
+                .userId(shareCreateDTO.getTargetUserId())
+                .permission(shareCreateDTO.getPermission())
                 .createdAt(LocalDateTime.now())
                 .build();
         save(share);
@@ -100,23 +99,23 @@ public class ShareServiceImpl extends ServiceImpl<FileShareMapper, FileShare> im
 
     /**
      * 取消对文件的分享
-     * @param fileId 分享文件的文件id
+     * @param sharedId 分享文件的文件id
      * @param userId 操作的用户id
      */
     @Override
-    public void unShareFile(Long fileId, Long userId) {
+    public void unShareFile(Long sharedId, Long userId) {
         // 查询分享记录（shareId 是主键，必然唯一）
-        FileShare fileShare = getById(fileId);
+        FileShare fileShare = getById(sharedId);
         if (fileShare == null) {
-            throw new BizException(40003, "该分享不存在");
+            throw new BizException(ErrorCode.SHARE_NOT_EXIST);
         }
         // 查询对应文件
         File file = fileMapper.selectById(fileShare.getFileId());
         // 只有文件拥有者可以取消分享
         if (file == null || !file.getOwnerId().equals(userId)) {
-            throw new BizException(40004, "无权限取消分享");
+            throw new BizException(ErrorCode.SHARE_NO_PERMISSION);
         }
-        removeById(fileId);
+        removeById(sharedId);
     }
 
     /**
@@ -126,7 +125,7 @@ public class ShareServiceImpl extends ServiceImpl<FileShareMapper, FileShare> im
      * @return 分页后的分享文件视图对象
      */
         @Override
-        public Page<SharedFileVO> receviedPage(Page<SharedFileVO> voPage, Long userId) {
+        public Page<SharedFileVO> receivedPage(Page<SharedFileVO> voPage, Long userId) {
             // 1. 分页查询当前用户收到的所有分享记录
             Page<FileShare> sharePage = page(
                     new Page<>(voPage.getCurrent(), voPage.getSize()),

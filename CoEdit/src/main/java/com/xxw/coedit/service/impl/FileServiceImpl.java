@@ -1,6 +1,9 @@
 package com.xxw.coedit.service.impl;
+import ch.qos.logback.core.spi.ErrorCodes;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.xxw.coedit.common.enums.ErrorCode;
+import com.xxw.coedit.common.exceptions.BizException;
 import com.xxw.coedit.dto.request.EditOperationDTO;
 import com.xxw.coedit.entity.File;
 import com.xxw.coedit.common.enums.PermissionEnum;
@@ -10,7 +13,6 @@ import com.xxw.coedit.service.LockService;
 import com.xxw.coedit.service.OnlineUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -47,14 +49,14 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, File> implements Fi
      * @param fileId 文件ID
      * @param userId 当前登录用户ID
      * @return 文件实体
-     * @throws RuntimeException 当用户对该文件无访问权限时抛出
+     * @throws BizException 当用户对该文件无访问权限时抛出
      */
     @Override
     public File getFile(Long fileId, Long userId) {
         // 校验权限，失败直接抛异常
         PermissionEnum perm = shareService.checkPermission(fileId, userId);
         if (perm == PermissionEnum.NONE) {
-            throw new RuntimeException("无权限查看此文件");
+            throw new BizException(ErrorCode.NO_VIEW_PERMISSION);
         }
         return getById(fileId);
     }
@@ -70,9 +72,11 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, File> implements Fi
         // 校验权限，失败直接抛异常
         PermissionEnum perm = shareService.checkPermission(fileId, userId);
         if (PermissionEnum.OWNER != perm) {
-            throw new RuntimeException("无权限删除该文件");
+            throw new BizException(ErrorCode.NO_DELETE_PERMISSION);
         }
         shareService.deleteByFileId(fileId);
+        lockService.releaseLock(fileId, userId);
+        onlineUserService.clearFileEditors(fileId);
         return removeById(fileId);
     }
 
@@ -88,7 +92,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, File> implements Fi
         // 校验权限，失败直接抛异常
         PermissionEnum perm = shareService.checkPermission(fileId, userId);
         if (PermissionEnum.OWNER != perm && PermissionEnum.EDITABLE != perm) {
-            throw new RuntimeException("无权限编辑该文件");
+            throw new BizException(ErrorCode.NO_EDIT_PERMISSION);
         }
         // 查询文件
         File file = getById(fileId);
@@ -124,7 +128,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, File> implements Fi
         // 权限校验：只有可编辑或拥有者才能执行 OT 操作
         PermissionEnum perm = shareService.checkPermission(fileId, userId);
         if (PermissionEnum.OWNER != perm && PermissionEnum.EDITABLE != perm) {
-            throw new RuntimeException("无权限编辑该文件");
+            throw new BizException(ErrorCode.NO_EDIT_PERMISSION);
         }
         // 查询当前文件快照
         File file = getById(fileId);
