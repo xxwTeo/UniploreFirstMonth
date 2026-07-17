@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.xxw.coedit.mapper.FileMapper">
+
+    <!-- 批量查询用户拥有的 File-->
+    <select id="listFilesPage" resultType="com.xxw.coedit.entity.File">
+        SELECT
+            id,
+            name,
+            content,
+            owner_id,
+            created_at,
+            updated_at
+        FROM files
+        WHERE owner_id = #{userId}
+        ORDER BY created_at DESC
+    </select>
+</mapper>

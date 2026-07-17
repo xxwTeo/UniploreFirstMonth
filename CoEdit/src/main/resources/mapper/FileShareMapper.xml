@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+        <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.xxw.coedit.mapper.FileShareMapper">
+
+    <!--按照 fileId 删除 FileShare 表中的数据-->
+    <delete id="deleteByFileId" parameterType="java.lang.Long">
+        delete from file_shares
+        where file_id = #{fileId}
+    </delete>
+
+    <!--查询 fileId 与 userId 之间的分享关系-->
+    <select id="selectByFileIdAndUserId" resultType="com.xxw.coedit.entity.FileShare">
+        select
+            id,
+            user_id,
+            file_id,
+            permission,
+            created_at
+        from file_shares
+        where file_id = #{fileId}
+            and user_id = #{userId}
+        limit 1
+    </select>
+
+    <!--按照 userId 批量查找 FileShare 数据-->
+    <select id="listPageByUserId" resultType="com.xxw.coedit.entity.FileShare" parameterType="java.lang.Long">
+        select
+            id,
+            user_id,
+            file_id,
+            permission,
+            created_at
+        from file_shares
+        where user_id = #{userId}
+        ORDER BY created_at DESC
+    </select>
+</mapper>

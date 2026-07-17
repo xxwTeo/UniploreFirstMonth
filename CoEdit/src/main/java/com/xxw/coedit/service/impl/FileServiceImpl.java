@@ -1,6 +1,4 @@
 package com.xxw.coedit.service.impl;
-import ch.qos.logback.core.spi.ErrorCodes;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xxw.coedit.common.enums.ErrorCode;
 import com.xxw.coedit.common.exceptions.BizException;
@@ -8,28 +6,30 @@ import com.xxw.coedit.dto.request.EditOperationDTO;
 import com.xxw.coedit.entity.File;
 import com.xxw.coedit.common.enums.PermissionEnum;
 import com.xxw.coedit.mapper.FileMapper;
+import com.xxw.coedit.security.SessionAccessGate;
 import com.xxw.coedit.service.FileService;
-import com.xxw.coedit.service.LockService;
-import com.xxw.coedit.service.OnlineUserService;
+import com.xxw.coedit.service.ShareService;
 import lombok.RequiredArgsConstructor;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
-import java.util.List;
+
 
 @Service
 @RequiredArgsConstructor
 public class FileServiceImpl extends ServiceImpl<FileMapper, File> implements FileService {
 
-    private final ShareServiceImpl shareService;
-    private final LockService lockService;
-    private final OnlineUserService onlineUserService;
+    private final ShareService shareService;
+    private final FileMapper fileMapper;
+    private final SessionAccessGate sessionAccessGate;
 
     /**
-     * 创建文本文件
-     * @param name     文件名
-     * @param content  文件内容
-     * @param ownerId  文件所属用户 ID（从 Token 中解析）
-     * @return 创建成功的文件实体（包含自增生成的文件 ID）
+     * 创建新文件
+     *
+     * @param name    文件名
+     * @param content 文件初始内容
+     * @param ownerId 所属用户ID（创建者）
+     * @return 创建成功的文件实体
      */
     @Override
     public File createFile(String name, String content, Long ownerId) {
@@ -45,15 +45,15 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, File> implements Fi
     }
 
     /**
-     * 根据用户ID获取指定文件，并进行权限校验
+     * 查询文件详情
+     *
      * @param fileId 文件ID
-     * @param userId 当前登录用户ID
+     * @param userId 当前用户ID
      * @return 文件实体
-     * @throws BizException 当用户对该文件无访问权限时抛出
+     * @throws BizException 无浏览权限时抛出
      */
     @Override
     public File getFile(Long fileId, Long userId) {
-        // 校验权限，失败直接抛异常
         PermissionEnum perm = shareService.checkPermission(fileId, userId);
         if (perm == PermissionEnum.NONE) {
             throw new BizException(ErrorCode.NO_VIEW_PERMISSION);
@@ -62,41 +62,42 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, File> implements Fi
     }
 
     /**
-     * 删除文件和对应的分享记录
-     * @param fileId 被删文件
-     * @param userId 操作人的 userId
+     * 删除文件
+     *
+     * @param fileId 文件ID
+     * @param userId 当前用户ID
      * @return 是否删除成功
+     * @throws BizException 非文件所有者时抛出
      */
     @Override
     public boolean deleteFile(Long fileId, Long userId) {
-        // 校验权限，失败直接抛异常
         PermissionEnum perm = shareService.checkPermission(fileId, userId);
         if (PermissionEnum.OWNER != perm) {
             throw new BizException(ErrorCode.NO_DELETE_PERMISSION);
         }
+        // 清理分享记录和在线编辑状态
         shareService.deleteByFileId(fileId);
-        lockService.releaseLock(fileId, userId);
-        onlineUserService.clearFileEditors(fileId);
         return removeById(fileId);
     }
 
     /**
-     * 更新文件内容（带权限校验）
-     * @param fileId 文件ID
-     * @param content 新的文件内容
-     * @param userId  当前操作用户ID
+     * 更新文件内容（全量覆盖）
+     *
+     * @param fileId    文件ID
+     * @param content   新内容
+     * @param userId    当前用户ID
+     * @param sessionId 协同编辑会话ID
      * @return 更新后的文件实体
+     * @throws BizException 无编辑权限或会话无效时抛出
      */
     @Override
-    public File updateFile(Long fileId, String content, Long userId) {
-        // 校验权限，失败直接抛异常
+    public File updateFile(Long fileId, String content, Long userId, String sessionId) {
+        sessionAccessGate.ensureEditable(fileId, userId, sessionId);
         PermissionEnum perm = shareService.checkPermission(fileId, userId);
         if (PermissionEnum.OWNER != perm && PermissionEnum.EDITABLE != perm) {
             throw new BizException(ErrorCode.NO_EDIT_PERMISSION);
         }
-        // 查询文件
         File file = getById(fileId);
-        // 全量覆盖内容
         file.setContent(content);
         file.setUpdatedAt(LocalDateTime.now());
         updateById(file);
@@ -104,48 +105,62 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, File> implements Fi
     }
 
     /**
-     * 查询当前用户拥有的所有文件
-     * @param userId 当前用户ID
-     * @return 当前用户拥有的文件列表
-     * TODO 改进为分页
+     * 分页查询当前用户的文件列表
+     *
+     * @param filePage 分页参数
+     * @param userId   当前用户ID
+     * @return 文件分页结果
      */
     @Override
-    public List<File> myFiles(Long userId) {
-        List<File> fileList = list(new LambdaQueryWrapper<File>()
-                .eq(File::getOwnerId, userId));
-        return fileList;
+    public Page<File> myFiles(Page<File> filePage, Long userId) {
+        return fileMapper.listFilesPage(filePage, userId);
     }
 
     /**
-     * 应用单次编辑操作（插入/删除）
+     * 应用协同编辑操作（OT 操作）
+     *
      * @param fileId 文件ID
-     * @param op     编辑操作DTO（insert / delete）
-     * @param userId 当前操作用户ID
-     * @return 编辑后的文件内容
+     * @param op     编辑操作（insert / delete / replace）
+     * @param userId 当前用户ID
+     * @return 操作后的文件内容
+     * @throws BizException 无编辑权限时抛出
      */
     @Override
     public String applyOperation(Long fileId, EditOperationDTO op, Long userId) {
-        // 权限校验：只有可编辑或拥有者才能执行 OT 操作
+        // 校验用户是否具备编辑权限（所有者或可编辑成员）
         PermissionEnum perm = shareService.checkPermission(fileId, userId);
         if (PermissionEnum.OWNER != perm && PermissionEnum.EDITABLE != perm) {
             throw new BizException(ErrorCode.NO_EDIT_PERMISSION);
         }
-        // 查询当前文件快照
+
+        // 加载当前文件快照
         File file = getById(fileId);
-        // 数据库里 content 可能为 null，防御性处理
+
+        // 处理空内容，避免 NPE
         StringBuilder sb = new StringBuilder(file.getContent() == null ? "" : file.getContent());
-        // 根据操作类型执行原子编辑
+
+        // 根据操作类型执行对应文本变更
         if (op.getOp().equals("insert")) {
-            // insert 基于光标位置，不依赖上下文
+            // 在指定位置插入内容
             sb.insert(op.getPosition(), op.getContent());
+
         } else if (op.getOp().equals("delete")) {
-            // delete 必须保证区间合法,(后端暂不二次校验)
+            // 从指定位置删除指定长度的文本
             sb.delete(op.getPosition(), op.getPosition() + op.getLength());
+
+        } else if (op.getOp().equals("replace")) {
+            // 全量替换：前端直接下发完整内容（如回滚、重置）
+            file.setContent(op.getContent());
+            file.setUpdatedAt(LocalDateTime.now());
+            updateById(file);
+            return file.getContent();
         }
-        // 写回新内容
+
+        // 增量操作后写回文件内容
         file.setContent(sb.toString());
         file.setUpdatedAt(LocalDateTime.now());
         updateById(file);
+
         return file.getContent();
     }
 }

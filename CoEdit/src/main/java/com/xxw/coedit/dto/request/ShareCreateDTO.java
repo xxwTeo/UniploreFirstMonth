@@ -8,6 +8,8 @@ import lombok.Data;
 @Data
 public class ShareCreateDTO {
     @NotNull
+    private String targetUsername;
+
     private Long targetUserId;
 
     @NotNull

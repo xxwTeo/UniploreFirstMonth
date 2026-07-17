@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
 
     private final JwtUtil jwtUtil;
+    private final UserMapper userMapper;
 
     /**
      * BCrypt 密码加密器，用于密码的加密存储和登录验证
@@ -46,8 +47,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      */
     @Override
     public String login(LoginDTO loginDTO) {
-        User user = getOne(new LambdaQueryWrapper<User>()
-                .eq(User::getUsername, loginDTO.getUsername()));
+        User user = userMapper.selectUserByUsername(loginDTO.getUsername());
         if (user == null || !encoder.matches(loginDTO.getPassword(), user.getPassword())) {
             throw new BizException(ErrorCode.USERNAME_OR_PASSWORD_ERROR);
         }

@@ -1,5 +1,4 @@
 package com.xxw.coedit.service.impl;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xxw.coedit.common.enums.ErrorCode;
@@ -27,67 +26,75 @@ public class ShareServiceImpl extends ServiceImpl<FileShareMapper, FileShare> im
 
     private final FileMapper fileMapper;
     private final UserMapper userMapper;
+    private final FileShareMapper fileShareMapper;
 
     /**
-     * 校验用户对指定文件的权限等级
-     * 文件权限, 0=无权限, 1=只读, 2=可编辑, 3=所有权限
+     * 校验用户对某文件的权限级别
+     *
      * @param fileId 文件ID
      * @param userId 用户ID
-     * @return 所有者权限
+     * @return 权限枚举（OWNER / EDITABLE / VIEWABLE / NONE）
      */
     @Override
     public PermissionEnum checkPermission(Long fileId, Long userId) {
         File file = fileMapper.selectById(fileId);
-        // 文件不存在视为无权限，避免上层重复判断
-        if (file == null) return PermissionEnum.NONE;
-        // 拥有者返回最高权限
-        if (file.getOwnerId().equals(userId)) return PermissionEnum.OWNER;
-        // 查询分享记录，存在即返回对应权限
-        FileShare fileShare = getOne(new LambdaQueryWrapper<FileShare>()
-                .eq(FileShare::getFileId, fileId)
-                .eq(FileShare::getUserId, userId));
-        if (fileShare != null) return fileShare.getPermission();
+        if (file == null) {
+            return PermissionEnum.NONE;
+        }
+        // 文件所有者
+        if (file.getOwnerId().equals(userId)) {
+            return PermissionEnum.OWNER;
+        }
+        // 被分享用户
+        FileShare fileShare = fileShareMapper.selectByFileIdAndUserId(fileId, userId);
+        if (fileShare != null && fileShare.getPermission() != null) {
+            return fileShare.getPermission();
+        }
         return PermissionEnum.NONE;
     }
 
     /**
-     * 根据 fileId 删除相应的分享关系
-     * @param fileId 被删除的 fileId
+     * 删除某文件的所有分享记录 (级联清理)
+     *
+     * @param fileId 文件ID
      */
     @Override
     public void deleteByFileId(Long fileId) {
-        remove(new LambdaQueryWrapper<FileShare>()
-                .eq(FileShare::getFileId, fileId));
+        fileShareMapper.deleteByFileId(fileId);
     }
 
     /**
-     * 分享文件给其他用户
-     * @param fileId        文件ID
-     * @param shareCreateDTO  被分享的目标用户ID与当前用户对文件的权限
-     * @param userId        当前操作用户ID
-     * @throws BizException 当文件不存在、无权限、或分享给自己时抛出业务异常
+     * 分享文件给指定用户
+     *
+     * @param fileId          文件ID
+     * @param shareCreateDTO  分享参数（目标用户名、权限）
+     * @param userId          当前操作用户ID（必须是文件所有者）
      */
     @Override
     public void shareFile(Long fileId, ShareCreateDTO shareCreateDTO, Long userId) {
+        // 校验文件是否存在且归属当前用户
         File file = fileMapper.selectById(fileId);
-        // 文件不存在或非拥有者禁止分享
         if (file == null || !file.getOwnerId().equals(userId)) {
             throw new BizException(ErrorCode.SHARE_FILE_NOT_FOUND);
         }
-        // 防止自己分享给自己
-        if (shareCreateDTO.getTargetUserId().equals(file.getOwnerId())) {
+
+        // 解析目标用户
+        User user = userMapper.selectUserByUsername(shareCreateDTO.getTargetUsername());
+        shareCreateDTO.setTargetUserId(user.getId());
+
+        // 禁止分享给自己
+        if (shareCreateDTO.getTargetUserId().equals(userId)) {
             throw new BizException(ErrorCode.SHARE_TO_SELF);
         }
-        // 已存在分享关系则更新权限，避免重复数据
-        FileShare exist = getOne(new LambdaQueryWrapper<FileShare>()
-                .eq(FileShare::getFileId, fileId)
-                .eq(FileShare::getUserId, shareCreateDTO.getTargetUserId()));
+
+        // 已存在分享关系则更新权限，否则新增
+        FileShare exist = fileShareMapper.selectByFileIdAndUserId(fileId, shareCreateDTO.getTargetUserId());
         if (exist != null) {
             exist.setPermission(shareCreateDTO.getPermission());
             updateById(exist);
             return;
         }
-        // 新建分享关系
+
         FileShare share = FileShare.builder()
                 .fileId(fileId)
                 .userId(shareCreateDTO.getTargetUserId())
@@ -98,92 +105,120 @@ public class ShareServiceImpl extends ServiceImpl<FileShareMapper, FileShare> im
     }
 
     /**
-     * 取消对文件的分享
-     * @param sharedId 分享文件的文件id
-     * @param userId 操作的用户id
+     * 取消文件分享
+     *
+     * @param sharedId 分享记录ID
+     * @param userId   当前操作用户ID（所有者或被分享人均可取消）
      */
     @Override
     public void unShareFile(Long sharedId, Long userId) {
-        // 查询分享记录（shareId 是主键，必然唯一）
         FileShare fileShare = getById(sharedId);
         if (fileShare == null) {
             throw new BizException(ErrorCode.SHARE_NOT_EXIST);
         }
-        // 查询对应文件
+
         File file = fileMapper.selectById(fileShare.getFileId());
-        // 只有文件拥有者可以取消分享
-        if (file == null || !file.getOwnerId().equals(userId)) {
+        boolean isOwner = file.getOwnerId().equals(userId);
+        boolean isSharedUser = fileShare.getUserId().equals(userId);
+
+        if (file == null || (!isOwner && !isSharedUser)) {
             throw new BizException(ErrorCode.SHARE_NO_PERMISSION);
         }
         removeById(sharedId);
     }
 
     /**
-     * 查询当前用户收到的分享文件（分页 + VO 转换）
-     * @param voPage 分页参数（当前页、每页条数），由前端传入
-     * @param userId 当前登录用户ID
-     * @return 分页后的分享文件视图对象
+     * 查询某文件的所有分享记录（仅所有者可见）
+     *
+     * @param fileId 文件ID
+     * @param userId 当前用户ID
+     * @return 分享记录列表（包含用户名、权限）
      */
-        @Override
-        public Page<SharedFileVO> receivedPage(Page<SharedFileVO> voPage, Long userId) {
-            // 1. 分页查询当前用户收到的所有分享记录
-            Page<FileShare> sharePage = page(
-                    new Page<>(voPage.getCurrent(), voPage.getSize()),
-                    new LambdaQueryWrapper<FileShare>()
-                            .eq(FileShare::getUserId, userId)
-                            .orderByDesc(FileShare::getCreatedAt)
-            );
+    @Override
+    public List<Map<String, Object>> listSharesByFile(Long fileId, Long userId) {
+        // 1. 校验文件是否存在，且当前用户是文件所有者（只有所有者能查看分享列表）
+        File file = fileMapper.selectById(fileId);
+        if (file == null || !file.getOwnerId().equals(userId)) {
+            throw new BizException(ErrorCode.SHARE_FILE_NOT_FOUND);
+        }
 
-            // 2. 无分享记录时直接返回空分页
-            if (sharePage.getRecords().isEmpty()) {
-                return new Page<>(voPage.getCurrent(), voPage.getSize());
-            }
+        // 2. 查询该文件的所有分享记录
+        List<FileShare> shares = lambdaQuery()
+                .eq(FileShare::getFileId, fileId)
+                .list();
+        if (shares.isEmpty()) {
+            return Collections.emptyList();
+        }
 
-            // 3. 收集文件fileIds，批量查询文件信息（减少 DB 交互）
-            Set<Long> fileIds = sharePage.getRecords().stream()
-                    .map(FileShare::getFileId)
-                    .collect(Collectors.toSet());
+        // 3. 批量查询被分享用户的用户名（避免 N+1 查询问题）
+        Set<Long> targetIds = shares.stream()
+                .map(FileShare::getUserId)
+                .collect(Collectors.toSet());
+        Map<Long, String> userMap = userMapper.selectBatchIds(targetIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getUsername));
 
-            Map<Long, File> fileMap = fileMapper.selectBatchIds(fileIds).stream()
-                    .collect(Collectors.toMap(
-                            File::getId,
-                            Function.identity(),
-                            (k1, k2) -> k1)
-                    );
+        // 4. 组装返回结果：分享ID + 被分享人用户名 + 权限级别
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (FileShare share : shares) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("shareId", share.getId());
+            item.put("targetUsername", userMap.getOrDefault(share.getUserId(), "未知用户"));
+            item.put("permission", share.getPermission().name());
+            result.add(item);
+        }
+        return result;
+    }
 
-            // 4. 收集文件拥有者userIds，批量查询用户名
-            Set<Long> userIds = fileMap.values().stream()
-                    .map(File::getOwnerId)
-                    .collect(Collectors.toSet());
+    /**
+     * 分页查询当前用户收到的分享文件
+     *
+     * @param voPage 分页参数
+     * @param userId 当前用户ID
+     * @return 分页后的分享文件视图（含文件名、所有者、权限、分享时间）
+     */
+    @Override
+    public Page<SharedFileVO> receivedPage(Page<SharedFileVO> voPage, Long userId) {
+        // 1. 查询当前用户的分享记录
+        Page<FileShare> sharePage = fileShareMapper.listPageByUserId(
+                new Page<>(voPage.getCurrent(), voPage.getSize()), userId);
 
-            Map<Long, String> userMap = userMapper.selectBatchIds(userIds).stream()
-                    .collect(Collectors.toMap(
-                            User::getId,
-                            User::getUsername,
-                            (k1, k2) -> k1)
-                    );
-
-            // 5. 组装 VO 列表
-            List<SharedFileVO> voList = new ArrayList<>();
-            for (FileShare share : sharePage.getRecords()) {
-                File file = fileMap.get(share.getFileId());
-                // 文件已被删除则跳过
-                if (file == null) {
-                    continue;
-                }
-
-                SharedFileVO vo = SharedFileVO.builder()
-                        .fileId(file.getId())
-                        .fileName(file.getName())
-                        .permissionEnum(PermissionEnum.fromCode(share.getPermission().getCode()))
-                        .sharedAt(share.getCreatedAt())
-                        .ownerName(userMap.getOrDefault(file.getOwnerId(), "未知用户"))
-                        .build();
-                voList.add(vo);
-            }
-            // 6. 回填分页结果
-            voPage.setTotal(sharePage.getTotal());
-            voPage.setRecords(voList);
+        if (sharePage.getRecords().isEmpty()) {
+            voPage.setTotal(0L);
+            voPage.setRecords(Collections.emptyList());
             return voPage;
         }
+
+        // 2. 批量查询文件信息
+        Set<Long> fileIds = sharePage.getRecords().stream()
+                .map(FileShare::getFileId).collect(Collectors.toSet());
+        Map<Long, File> fileMap = fileMapper.selectBatchIds(fileIds).stream()
+                .collect(Collectors.toMap(File::getId, Function.identity(), (k1, k2) -> k1));
+
+        // 3. 批量查询文件所有者用户名
+        Set<Long> ownerIds = fileMap.values().stream().map(File::getOwnerId).collect(Collectors.toSet());
+        Map<Long, String> ownerMap = userMapper.selectBatchIds(ownerIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getUsername));
+
+        // 4. 组装 VO
+        List<SharedFileVO> voList = new ArrayList<>();
+        for (FileShare share : sharePage.getRecords()) {
+            File file = fileMap.get(share.getFileId());
+            if (file == null) continue;
+
+            SharedFileVO vo = SharedFileVO.builder()
+                    .shareId(share.getId())
+                    .fileId(file.getId())
+                    .fileName(file.getName())
+                    .permissionEnum(PermissionEnum.fromCode(share.getPermission().getCode()))
+                    .sharedAt(share.getCreatedAt())
+                    .ownerName(ownerMap.getOrDefault(file.getOwnerId(), "未知用户"))
+                    .build();
+            voList.add(vo);
+        }
+
+        // 5. 封装返回
+        voPage.setTotal(sharePage.getTotal());
+        voPage.setRecords(voList);
+        return voPage;
+    }
 }

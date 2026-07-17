@@ -10,9 +10,10 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @Builder
 public class SharedFileVO {
+    private Long shareId;
     private Long fileId;
     private String fileName;
-    private PermissionEnum permissionEnum;  //当前用户对于文件的权限，0=无权限, 1=只读, 2=可编辑, 3=所有权限
+    private PermissionEnum permissionEnum;
     private String ownerName;
     private LocalDateTime sharedAt;
 }

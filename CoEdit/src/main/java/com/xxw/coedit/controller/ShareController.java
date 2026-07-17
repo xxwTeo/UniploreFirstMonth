@@ -1,9 +1,7 @@
 package com.xxw.coedit.controller;
-
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xxw.coedit.dto.request.ShareCreateDTO;
 import com.xxw.coedit.security.WebUtils;
-import com.xxw.coedit.common.enums.PermissionEnum;
 import com.xxw.coedit.service.impl.ShareServiceImpl;
 import com.xxw.coedit.common.result.Result;
 import com.xxw.coedit.dto.response.SharedFileVO;
@@ -20,10 +18,11 @@ public class ShareController {
     private final WebUtils webUtils;
 
     /**
-     * 分享文件接口
-     * @param fileId        文件ID
-     * @param shareCreateDTO       当前用户对文件的权限与目标文件
-     * @param request       HTTP请求，用于获取当前登录用户信息
+     * 分享文件给其他用户
+     *
+     * @param fileId         文件ID
+     * @param shareCreateDTO 分享参数（目标用户、权限级别）
+     * @param request        HTTP 请求，用于获取当前用户ID
      * @return 分享结果
      */
     @PostMapping("/{fileId}/share")
@@ -36,14 +35,10 @@ public class ShareController {
 
     /**
      * 取消文件分享
-     * 说明：
-     * - sharedId 是分享记录的主键（file_shares.id）
-     * - 不是文件ID，也不是被分享用户ID
-     * - 只有文件拥有者才允许取消
      *
      * @param sharedId 分享记录ID
-     * @param request  HTTP请求对象，用于获取当前登录用户ID
-     * @return 取消分享成功提示
+     * @param request  HTTP 请求，用于获取当前用户ID
+     * @return 取消结果
      */
     @DeleteMapping("/{sharedId}")
     public Result<?> unShare(@PathVariable Long sharedId, HttpServletRequest request) {
@@ -52,12 +47,28 @@ public class ShareController {
     }
 
     /**
-     * 查询当前用户收到的分享文件列表
-     * @param request HTTP请求对象，用于解析当前登录用户身份信息
-     * @return 统一返回结果，包含当前用户收到的分享文件列表
+     * 查询某文件的分享列表（我分享出去的）
+     *
+     * @param fileId  文件ID
+     * @param request HTTP 请求，用于获取当前用户ID
+     * @return 分享记录列表
+     */
+    @GetMapping("/file/{fileId}")
+    public Result<?> listShares(@PathVariable Long fileId, HttpServletRequest request) {
+        return Result.succeed(shareService.listSharesByFile(fileId, webUtils.currentUserId(request)));
+    }
+
+    /**
+     * 分页查询我收到的分享文件
+     *
+     * @param current 当前页（默认第1页）
+     * @param size    每页条数（默认5条）
+     * @param request HTTP 请求，用于获取当前用户ID
+     * @return 分页后的分享文件视图列表
      */
     @GetMapping("/received")
-    public Result<?> recevied(@RequestParam(defaultValue = "1") Long current,
+    public Result<?> recevied(
+            @RequestParam(defaultValue = "1") Long current,
             @RequestParam(defaultValue = "5") Long size,
             HttpServletRequest request) {
         Page<SharedFileVO> voPage = new Page<>(current, size);

@@ -1,6 +1,5 @@
 package com.xxw.coedit.controller;
 import com.xxw.coedit.dto.request.LoginDTO;
-import com.xxw.coedit.security.JwtUtil;
 import com.xxw.coedit.dto.request.RegisterDTO;
 import com.xxw.coedit.entity.User;
 import com.xxw.coedit.security.WebUtils;
@@ -14,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/auth")
-public class AuthController {
+public class    AuthController {
 
     private final UserService userService;
     private final WebUtils webUtils;
